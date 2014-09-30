@@ -354,7 +354,7 @@ fun readFile f =
 
 fun read_sig (f:string) : sigmap =
     let val s = readFile f
-    in case R.extract (R.fromString ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+).*end).*\\(\\*\\*(.*)\\*\\).*") s of
+    in case R.extract (R.fromString ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end).*\\(\\*\\*(.*)\\*\\).*") s of
          SOME [c,sigid,src,cs] => 
          let val (shortc,longc) = 
                  case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
