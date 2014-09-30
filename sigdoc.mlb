@@ -2,5 +2,7 @@ local
   $(SML_LIB)/basis/basis.mlb
   $(SMACKAGE)/kitlib/v1/regexp/regexp.mlb
   $(SMACKAGE)/kitlib/v1/listsort/listsort.mlb
+  PARSE_ARG.sig
+  ParseArg.sml
 in sigdoc.sml
 end
