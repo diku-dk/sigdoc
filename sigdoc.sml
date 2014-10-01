@@ -355,9 +355,10 @@ fun readFile f =
        end handle ? => (TextIO.closeIn is; raise ?)
     end
 
+exception SigFormatError of string
 fun read_sig (f:string) : sigmap =
     let val s = readFile f
-    in case R.extract (R.fromString ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end).*\\(\\*\\*(.*)\\*\\).*") s of
+    in case R.extract (R.fromString ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end)[\n ]*\\(\\*\\*(.*)\\*\\).*") s of
          SOME [c,sigid,src,cs] => 
          let val (shortc,longc) = 
                  case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
@@ -367,12 +368,12 @@ fun read_sig (f:string) : sigmap =
          end
        | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
                      raise Fail "read_sig wrong format 0")
-       | NONE => raise Fail "read_sig wrong format"
+       | NONE => raise SigFormatError "content not on the form '(**...*)...signature XXX =...sig...end...(**...*)'"
     end
 
 type strmap = {sigid:sigid,short_comment:string} Map.t   (* StrId -> SigId *)
 
-fun read_impl (f:string) : strmap =
+fun read_impl (sigmap:sigmap) (f:string) : strmap =
     let fun loop acc s =
             case R.extract (R.fromString "(.*)structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+) .*") s of
               SOME [rest,strid,sigid] => 
@@ -381,7 +382,11 @@ fun read_impl (f:string) : strmap =
                         SOME [rest,c] => (rest,c)
                       | SOME [c] => ("",c)
                       | _ => (rest,"")
-              in loop (Map.insert(acc,strid,{sigid=sigid,short_comment=c})) rest
+                  val acc = case Map.lookup (sigmap,sigid) of
+                                NONE => (print ("Skipping " ^ strid ^ " : " ^ sigid ^ ", as " ^ sigid ^ " is not known.\n");
+                                         acc)
+                              | SOME _ => Map.insert(acc,strid,{sigid=sigid,short_comment=c})
+              in loop acc rest
               end
             | SOME [strid,sigid] => 
               Map.insert(acc,strid,{sigid=sigid,short_comment=""})
@@ -682,9 +687,15 @@ fun gen (sigfiles:string list, implfiles) =
      *)
     let 
       val sigmap : sigmap = 
-          foldl (fn (x,a) => Map.plus(a,read_sig x)) (Map.emp()) sigfiles
+          foldl (fn (x,a) => 
+                    let val m = read_sig x
+                    in Map.plus(a,m)
+                    end handle SigFormatError s => 
+                               (print ("Skipping file: " ^ s ^ "\n");
+                                a)
+                ) (Map.emp()) sigfiles
       val strmap : strmap =
-          foldl (fn (x,a) => Map.plus(a,read_impl x)) (Map.emp()) implfiles
+          foldl (fn (x,a) => Map.plus(a,read_impl sigmap x)) (Map.emp()) implfiles
       fun out (arg as (s,a), idmap) =
           let val (cstr, idmap2) = pp strmap arg 
               val str = stringOfCString cstr
