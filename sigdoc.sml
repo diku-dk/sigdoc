@@ -374,7 +374,7 @@ type strmap = {sigid:sigid,short_comment:string} Map.t   (* StrId -> SigId *)
 
 fun read_impl (f:string) : strmap =
     let fun loop acc s =
-            case R.extract (R.fromString "(.*)structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+).*") s of
+            case R.extract (R.fromString "(.*)structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+) .*") s of
               SOME [rest,strid,sigid] => 
               let val (rest, c) =
                       case R.extract (R.fromString "(.*)\\(\\*\\*([^\n]*)\\*\\)\n") rest of
