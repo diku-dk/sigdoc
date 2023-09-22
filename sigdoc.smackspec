@@ -1,5 +1,0 @@
-description: A signature documentation tool for Standard ML
-maintainer: Martin Elsman <mael@di.ku.dk>
-keywords: documentation, html
-license: MIT License
-requires: kitlib v1 (v1.0.1)

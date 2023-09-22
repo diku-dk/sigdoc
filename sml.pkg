@@ -1,0 +1,6 @@
+require {
+  github.com/diku-dk/sml-cstring 0.1.0 #261ac586ddad1d9976a34f86bd12214940799fa7
+  github.com/diku-dk/sml-setmap 0.1.0 #d6928504c924388de753c12a8d4f2fda32cecddb
+  github.com/diku-dk/sml-regexp 0.1.0 #f0d0891e746255d701cd9b17e8a6a6b76799c4f9
+  github.com/diku-dk/sml-sort 0.2.0 #2cb5a201e9ad26e124b66aaafa57352c49f1405a
+}

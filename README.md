@@ -16,13 +16,20 @@ signatures and generates a documentation page with an index over
 structure identifier (with links to the signature documentation).
 
 The generated HTML documentation embeds an auto-completing search
-field that depends on the jquery library placed in the lib/
+field that depends on the jquery library placed in the `lib/`
 subdirectory. For the generated code to work, copy the content of the
-lib/ directory into the target directory for the documentation.
+`lib/` directory into the target directory for the documentation.
+
+Based on the file paths, the tool also tries to identify if the
+signature or structure stem from an `smlpkg` package.
+
+The result of running `sigdoc` on a series of signature and
+implementation files, is a set of files written to the working
+directory.
 
 Signature files must conform to the following structure:
 
-    (** general comment ... *)
+    (** General comment, which may be multi-line... *)
 
     signature A = sig
       type a
@@ -31,10 +38,12 @@ Signature files must conform to the following structure:
     end
 
     (**
-      [a] is a type.
 
-      [b a] returns unit.
-    *)
+	[a] is a type.
+
+    [b a] returns unit.
+
+	*)
 
 
 ## TODO

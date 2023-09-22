@@ -1,9 +1,10 @@
 
 MLCOMP ?= mlkit
+SMLPKG ?= smlpkg
 
 all: sigdoc
 
-sigdoc: sigdoc.mlb sigdoc.sml Makefile
+sigdoc: sigdoc.mlb sigdoc.sml Makefile lib
 	$(MLCOMP) -output sigdoc sigdoc.mlb
 
 install:
@@ -11,3 +12,10 @@ install:
 
 clean:
 	rm -rf *~ MLB run sigdoc *.html
+
+realclean:
+	$(MAKE) clean
+	rm -rf lib
+
+lib: sml.pkg
+	$(SMLPKG) sync

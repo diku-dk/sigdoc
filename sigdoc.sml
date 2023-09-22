@@ -1,50 +1,20 @@
+(* Utilities *)
 
-signature MAP = sig
-  type 'a t
-  val emp    : unit -> 'a t
-  val insert : 'a t * string * 'a -> 'a t
-  val lookup : 'a t * string -> 'a option
-  val list   : 'a t -> (string * 'a) list
-  val dom    : 'a t -> string list
-  val plus   : 'a t * 'a t -> 'a t
-  val argsForWhich : 'a t -> ('a -> bool) -> string list
-  val single : string * 'a -> 'a t
-end
-
-structure Map :> MAP = struct
-  type 'a t = (string * 'a) list
-  fun emp() = []
-  fun insert (m,a,b) = (a,b)::m
-  fun lookup (m,a) = 
-      case List.find (fn (b,_) => a = b) m of
-        SOME (_,x) => SOME x
-      | NONE => NONE
-  fun list a = a
-  fun dom a = List.map (fn (x,y) => x) a
-  val plus = op @
-  fun single (a,b) = [(a,b)]
-  fun argsForWhich (m:'a t) (p : 'a -> bool) : string list =
-      map #1 (List.filter (fn (a,b) => p b) m)
-end
+val sigdoc_url = "http://github.com/melsman/sigdoc"
 
 fun println s = print (s ^"\n")
 
+structure Map = struct
+  open StringMap
+  fun argsForWhich (m:'a map) (p : 'a -> bool) : string list =
+      Fold (fn ((s,v),a) => if p v then s::a else a) nil m
+end
+
 (* Concatenable strings *)
-datatype cstring = $ of string | & of cstring * cstring | CSeq of cstring list
+structure CS = CString
 infix 6 &  (* as ^ *)
-fun stringOfCString ($ s) = s
-  | stringOfCString cs =
-    let fun loop ($ s,a) = s::a
-          | loop (cs1 & cs2,a) = loop(cs1,loop(cs2,a))
-          | loop (CSeq(cs::css),a) = loop(cs,loop(CSeq css,a))
-          | loop (CSeq nil,a) = a
-    in concat(loop(cs,nil))
-    end
-fun cconcat l = CSeq l
-fun cconcatWith s [cs] = cs
-  | cconcatWith s nil = $""
-  | cconcatWith s (cs::css) =
-    cs & ($s) & cconcatWith s css
+val op & = CS.&
+val op $ = CS.$
 
 (* Lexing of sml tokens *)
 signature LEX = sig
@@ -63,7 +33,7 @@ signature LEX = sig
   val defs : t list -> id list * excon list * tycon list * (strid*sigid) list
   val conv : (strid -> sigid) -> t list -> t list
   val isKw : string -> bool
-  val pp  : t list -> cstring
+  val pp  : t list -> CS.t
 end
 
 fun htmlencode s : string =
@@ -72,13 +42,13 @@ fun htmlencode s : string =
 	  | enc #"&" = "&amp;"
 	  | enc #"\"" = "&quot;"
 	  | enc c = String.str c
-    in String.translate enc s 
+    in String.translate enc s
     end
 
-fun taga t a e = $("<" ^ t ^ a ^ ">") & e & $("</" ^ t ^ ">") 
+fun taga t a e = $("<" ^ t ^ a ^ ">") & e & $("</" ^ t ^ ">")
 fun tag t e = taga t "" e
 fun taga0 t a = taga t a ($"")
-fun tag0 t = $("<" ^ t ^ " />") 
+fun tag0 t = $("<" ^ t ^ " />")
 fun tdwl w e = taga "td" (" width='" ^ Int.toString w ^ "%' align='left'") e
 
 fun encode id =
@@ -93,12 +63,12 @@ fun encode id =
 fun plingencode id =
     String.translate (fn #"'" => "\\'" | c => String.str c) id
 
-fun init_space s = 
+fun init_space s =
     (Char.isSpace(String.sub(s,0)))
     handle _ => false
 
 fun remove_init_ws s =
-    let fun loop n = 
+    let fun loop n =
             if Char.isSpace(String.sub(s,n)) then loop (n+1)
             else n
     in String.extract(s,loop 0,NONE)
@@ -143,7 +113,7 @@ fun isKw s =
 
 fun spaces t =
     case t of
-      SPACE s :: rest => 
+      SPACE s :: rest =>
       (case spaces rest of
          NONE => SOME(s,rest)
        | SOME (sp,r) => SOME(s^sp,r))
@@ -176,13 +146,13 @@ fun conv m t =
                 nil => nil
               | ID id :: rest =>
                 if isKw id then KW id :: conv0 rest
-                else 
+                else
                   (case longid id of
                      SOME(id1,id2) =>
                      let val signat = lookupStructure m id1
                        val file = signat ^ ".sml.html"
-                       val href1 = file ^ "#" ^ "$S" ^ id1 
-                       val href2 = file ^ "#" ^ "$T" ^ id2 
+                       val href1 = file ^ "#" ^ "$S" ^ id1
+                       val href2 = file ^ "#" ^ "$T" ^ id2
                      in
                        LINK{href=href1,elem=id1} :: ID "." ::
                        LINK{href=href2,elem=id2} :: conv0 rest
@@ -192,7 +162,7 @@ fun conv m t =
     in conv0 t
     end
 
-fun pp ts = cconcat(map sOf ts)
+fun pp ts = CS.concat(map sOf ts)
 
 type pos = int
 type level = int
@@ -204,27 +174,27 @@ fun getc (s,p) =
       SOME(String.sub(s,p),(s,p+1))
     else NONE
 
-fun pr_error_pos (s,p) = 
-    "Error at position " ^ Int.toString p ^ ": " ^ String.extract(s,p,NONE) 
+fun pr_error_pos (s,p) =
+    "Error at position " ^ Int.toString p ^ ": " ^ String.extract(s,p,NONE)
 
 fun read_chars (f:char->bool) (is:stream) (C:string -> t) =
     let fun read is a =
             case getc is of
-              SOME(c,is') => 
+              SOME(c,is') =>
               if f c then
                 read is' (c::a)
-              else if a <> [] then 
+              else if a <> [] then
                 SOME(C(String.implode(rev a)),is)
               else NONE
-            | NONE => 
-              if a <> [] then 
+            | NONE =>
+              if a <> [] then
                 SOME(C(String.implode(rev a)),is)
               else NONE
     in read is []
     end
 
-fun read_id is = 
-    let fun isIdChar c = 
+fun read_id is =
+    let fun isIdChar c =
             Char.isAlpha c orelse Char.isDigit c orelse c = #"'" orelse c = #"_" orelse c = #"."
     in read_chars isIdChar is ID
     end
@@ -279,7 +249,7 @@ fun read_comment is =
 fun eos (s,i) = i >= String.size s
 
 fun lex s =
-    let fun read (is:stream) (a:t list) : t list =           
+    let fun read (is:stream) (a:t list) : t list =
             case read_space is of
               SOME(t,is) => read is (t::a)
             | NONE =>
@@ -291,37 +261,37 @@ fun lex s =
             | NONE =>
             case read_symb is of
               SOME(t,is) => read is (t::a)
-            | NONE => 
+            | NONE =>
             case read_id is of
               SOME(t,is) => read is (t::a)
-            | NONE => 
+            | NONE =>
               if eos is then rev a
               else raise Fail ("Error reading string: " ^ pr_error_pos is)
     in read (s,0) nil
     end
 
-fun defs ts = 
-    let fun tyvar id = 
+fun defs ts =
+    let fun tyvar id =
             case explode id of
               #"'" :: _ => true
             | _ => false
         fun eat_tyvars ts =
             case ts of
-              ID id :: SPACE _ :: ts' => 
+              ID id :: SPACE _ :: ts' =>
               if tyvar id then ts' else ts
             | _ => ts
         fun typespec "type" = true
           | typespec "eqtype" = true
           | typespec "datatype" = true
           | typespec _ = false
-            
+
         fun loop (acc as (ids,tycons,excons,strs)) ts =
             case ts of
               ID "val" :: SPACE _ :: ID id :: ts =>
               loop (id::ids,tycons,excons,strs) ts
             | ID "exception" :: SPACE _ :: ID excon :: ts =>
               loop (ids,tycons,excon::excons,strs) ts
-            | ID "structure" :: SPACE _ :: ID strid :: 
+            | ID "structure" :: SPACE _ :: ID strid ::
               SPACE _ :: ID ":" :: SPACE _ :: ID sigid :: ts =>
               loop (ids,tycons,excons,(strid,sigid)::strs) ts
             | ID kw :: SPACE _ :: ts =>
@@ -344,8 +314,21 @@ type sigid = string
 type strid = string
 type id = string
 
-type sigmap = {short_comment:string, long_comment:string, 
-               src:string, comments:string} Map.t   (* dom=sigid *)
+datatype origin = ORIGIN_BASIS
+                | ORIGIN_PKG of string
+                | ORIGIN_NONE
+
+type sigmap = {short_comment:string, long_comment:string,
+               src:string, origin:origin, comments:string} Map.map   (* dom=sigid *)
+
+fun find_origin s =
+    let val re_pkg = RegExp.fromString ".*(github.com/.*/.*)/.*"
+        val re_bas = RegExp.fromString ".*basis.*"
+    in case RegExp.extract re_pkg s of
+           SOME [p] => ORIGIN_PKG p
+         | _ => if RegExp.match re_bas s then ORIGIN_BASIS
+                else ORIGIN_NONE
+    end
 
 fun readFile f =
     let val () = print ("Reading file: " ^ f ^ "\n")
@@ -359,41 +342,44 @@ exception SigFormatError of string
 fun read_sig (f:string) : sigmap =
     let val s = readFile f
     in case R.extract (R.fromString ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end)[\n ]*\\(\\*\\*(.*)\\*\\).*") s of
-         SOME [c,sigid,src,cs] => 
-         let val (shortc,longc) = 
+         SOME [c,sigid,src,cs] =>
+         let val origin = find_origin f
+             val (shortc,longc) =
                  case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
                    SOME [shortc,longc] => (shortc,longc)
                  | _ => ("",c)
-         in Map.single(sigid, {short_comment=shortc,long_comment=longc,src=src,comments=cs})
+         in Map.singleton(sigid, {short_comment=shortc,long_comment=longc,src=src,comments=cs,origin=origin})
          end
        | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
                      raise Fail "read_sig wrong format 0")
        | NONE => raise SigFormatError "content not on the form '(**...*)...signature XXX =...sig...end...(**...*)'"
     end
 
-type strmap = {sigid:sigid,short_comment:string} Map.t   (* StrId -> SigId *)
+type strmap = {sigid:sigid,short_comment:string,origin:origin} Map.map   (* StrId -> SigId *)
 
 fun read_impl (sigmap:sigmap) (f:string) : strmap =
-    let fun loop acc s =
+    let val origin = find_origin f
+        fun loop acc s =
             case R.extract (R.fromString "(.*)structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+) .*") s of
-              SOME [rest,strid,sigid] => 
+              SOME [rest,strid,sigid] =>
               let val (rest, c) =
                       case R.extract (R.fromString "(.*)\\(\\*\\*([^\n]*)\\*\\)\n") rest of
                         SOME [rest,c] => (rest,c)
                       | SOME [c] => ("",c)
                       | _ => (rest,"")
-                  val acc = case Map.lookup (sigmap,sigid) of
-                                NONE => (print ("Skipping " ^ strid ^ " : " ^ sigid ^ ", as " ^ sigid ^ " is not known.\n");
+                  val acc = case Map.lookup sigmap sigid of
+                                NONE => (print ("Skipping " ^ strid ^ " : " ^ sigid ^
+                                                ", as " ^ sigid ^ " is not known.\n");
                                          acc)
-                              | SOME _ => Map.insert(acc,strid,{sigid=sigid,short_comment=c})
+                              | SOME _ => Map.add(strid,{sigid=sigid,short_comment=c,origin=origin},acc)
               in loop acc rest
               end
-            | SOME [strid,sigid] => 
-              Map.insert(acc,strid,{sigid=sigid,short_comment=""})
+            | SOME [strid,sigid] =>
+              Map.add(strid,{sigid=sigid,short_comment="",origin=origin},acc)
             | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
                           raise Fail "read_impl wrong format 1")
             | NONE => acc
-    in loop (Map.emp()) (readFile f)
+    in loop Map.empty (readFile f)
     end
 
 fun match_id nil h = NONE
@@ -409,7 +395,7 @@ fun pp_comments (ids,tycons,excons,strs) s =
 (*(*(*
         fun loop cs s =
             case R.extract (R.fromString "(.*)\\n\\[([\\-0-9a-zA-Z_:<>=&%#@|'!*/$(), ]+)\\](.*)") s of
-              SOME [rest,h,b] => 
+              SOME [rest,h,b] =>
               loop ((h,b)::cs) rest
             | SOME [h,b] => ((h,b)::cs)
             | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
@@ -424,7 +410,7 @@ fun pp_comments (ids,tycons,excons,strs) s =
                (String.extract(s,1,SOME (i-1)),
                 String.extract(s,i+1,NONE) handle _ => "")
              | NONE => raise Fail "read_head")
-            handle _ => raise Fail ("read_head2:" ^ s) 
+            handle _ => raise Fail ("read_head2:" ^ s)
         fun only_ws s = CharVector.all Char.isSpace s
         fun eat_wss (s::ss) = if only_ws s then eat_wss ss
                               else s::ss
@@ -442,7 +428,7 @@ fun pp_comments (ids,tycons,excons,strs) s =
             else loop cs (l::a) ls
           | loop cs a nil = rev(finalize a cs)
       val cs = loop [] [] lines
-      fun layout_head h = if stringOfCString h = "Discussion" then tag "i" h else ($"[") & tag "tt" h & ($"]")
+      fun layout_head h = if CS.toString h = "Discussion" then tag "i" h else ($"[") & tag "tt" h & ($"]")
       fun layout_body b =
           let
             val b = remove_init_ws b
@@ -469,36 +455,49 @@ fun pp_comments (ids,tycons,excons,strs) s =
                 end
           in $(concat(rev(loop lines false nil)))
           end
-    in tag "dl" 
-           (cconcat 
-                (map (fn (h,b) => 
+    in tag "dl"
+           (CS.concat
+                (map (fn (h,b) =>
                          let
                            val h2 = htmlencode h
                            val h3 =
                                case match_id ids h of
-                                 SOME id => 
+                                 SOME id =>
                                  let val name = encode id
                                  in taga "a" (" name='" ^ name ^ "'") ($h2)
                                  end
                                | NONE => $ h2
                            val b = htmlencode b
                          in if only_ws b then tag "dt" (tag "b" (layout_head h3))
-                            else tag "dt" (tag "b" (layout_head h3)) & ($" ") & tag "dd" (layout_body b) & tag0 "br"
+                            else tag "dt" (tag "b" (layout_head h3)) & ($" ")
+                                     & tag "dd" (layout_body b) & tag0 "br"
                          end) cs))
     end
 
+val libpath : string ref = ref ""
+
 fun page h idx b =
-    let val str_idx_link = taga "a" " href='str_idx.html'" ($"Structures")
-        val sig_idx_link = taga "a" " href='sig_idx.html'" ($"Signatures")
-        val id_idx_link = taga "a" " href='id_idx.html'" ($"Identifiers")
+    let val str_idx_html = "str_idx.html"
+        val sig_idx_html = "sig_idx.html"
+        val id_idx_html = "id_idx.html"
+        val generated_tags_js = "generated_tags.js"
+
+        val style_css = OS.Path.concat(!libpath,"style.css")
+        val jquery_ui_css = OS.Path.concat(!libpath,"jquery-ui.css")
+        val jquery_1_9_1_js = OS.Path.concat(!libpath,"jquery-1.9.1.js")
+        val jquery_ui_js = OS.Path.concat(!libpath,"jquery-ui.js")
+
+        val str_idx_link = taga "a" (" href='" ^ str_idx_html ^ "'") ($"Structures")
+        val sig_idx_link = taga "a" (" href='" ^ sig_idx_html ^ "'") ($"Signatures")
+        val id_idx_link = taga "a" (" href='" ^ id_idx_html ^ "'") ($"Identifiers")
         val search = taga0 "input" " id='tags' placeholder='Search' style='width:100%; margin-right:20px;'"
         val head =
           tag "head"
-            (taga0 "link" " rel='stylesheet' href='jquery-ui.css'" &
-             taga0 "script" " src='jquery-1.9.1.js'" &
-             taga0 "script" " src='jquery-ui.js'" &
-             taga0 "script" " src='generated_tags.js'" &
-             taga0 "link" " rel='stylesheet' href='style.css'" &
+            (taga0 "link" (" rel='stylesheet' href='" ^ jquery_ui_css ^ "'") &
+             taga0 "script" (" src='" ^ jquery_1_9_1_js ^ "'") &
+             taga0 "script" (" src='" ^ jquery_ui_js ^ "'") &
+             taga0 "script" (" src='" ^ generated_tags_js ^ "'") &
+             taga0 "link" (" rel='stylesheet' href='" ^ style_css ^ "'") &
              tag "script"
                ($ "$(function() { \
                   \  $( '#tags' ).autocomplete({\
@@ -512,39 +511,50 @@ fun page h idx b =
         fun tdc e = taga "td" " align='center'" e
         fun td e = tag "td" e
     in
-      tag "html"          
-          (tag "head" head & 
+      tag "html"
+          (tag "head" head &
            tag "body"
              (tag "p" (str_idx_link & $" | " & tdc sig_idx_link & $" | " & tdr id_idx_link) &
               taga "p" " style='width:100%'" search &
               tag0 "hr" &
               tag "h4" h &
               tag "p" idx &
-              b & 
+              b &
               tag0 "hr" &
-              tag "i" ($"Generated by SigDoc")))
+              tag "i" ($"Generated by " & taga "a" (" href='" ^ sigdoc_url ^ "'") ($"SigDoc"))))
     end
 
 fun strs_for_sigid sigid (strmap:strmap) =
     Map.argsForWhich strmap (fn {sigid=x,...} => sigid=x)
 
-fun pp strmap (sigid, {short_comment,long_comment,src,comments}) =
-    let val ts = Lex.lex src 
-      val ids = Lex.defs ts 
-      val idmap = Map.single(sigid,ids)
+fun pp_origin origin =
+    case origin of
+        ORIGIN_BASIS => tag "i" ($ "(basis)")
+      | ORIGIN_PKG p => tag "i"
+                            ($"(pkg " &
+                              taga "a" (" href='http://" ^ p ^ "'") ($ p) &
+                              $")")
+      | ORIGIN_NONE => tag "i" ($"(none)")
+
+fun pp strmap (sigid, {short_comment,long_comment,src,comments,origin}) =
+    let val ts = Lex.lex src
+      val ids = Lex.defs ts
+      val idmap = Map.singleton(sigid,ids)
       val ts = Lex.conv (fn x => x) ts
       val src2 = Lex.pp ts
       open Lex
-      fun layout_struct x = tag "b" ($("structure" ^ " " ^ x ^ " : " ^ sigid ^ "\n"))                            
+      fun layout_struct x =
+          tag "b" ($("structure " ^ x ^ " : " ^ sigid ^ " ") & pp_origin origin & ($"\n"))
+      val space = $" "
       val output =
-          page 
-              ($"Signature " & tag "tt" ($sigid))
+          page
+              ($"Signature " & tag "code" ($sigid) & space & tag "tt" (pp_origin origin))
               ($(htmlencode short_comment))
               ($(htmlencode long_comment) &
                 tag0 "hr" &
-                tag "pre" (cconcat (map layout_struct (strs_for_sigid sigid strmap))) &
+                tag "pre" (CS.concat (map layout_struct (strs_for_sigid sigid strmap))) &
                 tag0 "hr" &
-                tag "pre" src2 & 
+                tag "pre" src2 &
                 tag0 "hr" &
                 pp_comments ids comments)
     in (output, idmap)
@@ -561,39 +571,38 @@ fun writeFile f a =
 fun gen_idx {head: string,
              lines: 'a list,
              line_id: 'a -> string,
-             line_entry: 'a -> cstring,
-             line_bodies: 'a -> cstring list,
+             line_entry: 'a -> CS.t,
+             line_bodies: 'a -> CS.t list,
              sep: string} =
     let
       fun section ch part =
-          if part = $"" then $""
-          else 
+          if CS.toString part = "" then $""
+          else
           let val h =
                   if Char.isAlpha ch then String.str (Char.toUpper ch)
-                  else "Symbols" 
+                  else "Symbols"
               val h = taga "a" (" name='"^h^"'") ($h)
           in tag "h4" h & taga "table" " width='100%'" part
           end
-      val (ch,ch_acc,acc,chs) = 
+      val (ch,ch_acc,acc,chs) =
           foldl (fn (line,(ch,ch_acc,acc,chs)) =>
                     let
                       val bodies = line_bodies line
                       val id = line_id line
                       val ch2 = String.sub(id,0)
                       val e = line_entry line
-(*                      val () = println (id ^ ": " ^ stringOfCString e) *)
                       val n = List.length bodies
                       val bodies = List.map (tdwl (75 div n)) bodies
-                      val entry = tag "tr" (tdwl 20 (tag "tt" e) & tdwl 5 ($sep) & (CSeq bodies))
+                      val entry = tag "tr" (tdwl 20 (tag "tt" e) & tdwl 5 ($sep) & (CS.concat bodies))
                     in if not(Char.isAlpha ch2) orelse ch=ch2 then
                          (ch,ch_acc & entry,acc,chs)
                        else (ch2,entry,acc & section ch ch_acc,ch2::chs)
                     end)
                 (#"*",$"",$"",nil) lines
       val cs = acc & section ch ch_acc
-      val idx = 
-          cconcatWith " | "
-          (map (fn c => 
+      val idx =
+          CS.concatWith " | "
+          (map (fn c =>
                    let val h = String.str (Char.toUpper c)
                    in taga "a" (" href='#"^h^"'") ($h)
                    end) (rev chs))
@@ -602,12 +611,13 @@ fun gen_idx {head: string,
 
 fun gen_sig_idx (sigmap:sigmap, strmap) =
     let val sigs = Map.list sigmap
-        val sigs = Listsort.sort (fn (x,y) => String.compare (#1 x,#1 y)) sigs
-        val im = List.map (fn (s,{short_comment,...}) => 
-                              let val t = s ^ ".sml.html" 
+        val sigs = ListSort.sort (fn (x,y) => String.compare (#1 x,#1 y)) sigs
+        val im = List.map (fn (s,{short_comment,...}) =>
+                              let val t = s ^ ".sml.html"
                                   val strs = strs_for_sigid s strmap
                                   val strs = List.foldl (fn (s,a) => tag "tt" ($s) & ($" ") & a) ($"") strs
-                              in (s, taga "a" (" href='" ^ t ^ "' title='" ^ short_comment ^ "'") (tag "tt" ($s)), [strs(*, tag "em" ($short_comment)*)])
+                              in (s, taga "a" (" href='" ^ t ^ "' title='" ^ short_comment ^ "'")
+                                          (tag "tt" ($s)), [strs])
                               end) sigs
         val cs = gen_idx {head="Signatures",
                           lines=im,
@@ -615,21 +625,23 @@ fun gen_sig_idx (sigmap:sigmap, strmap) =
                           line_entry= #2,
                           line_bodies= #3,
                           sep="&nbsp;"}
-    in writeFile "sig_idx.html" (stringOfCString cs)
+    in writeFile "sig_idx.html" (CS.toString cs)
     end
 
 fun gen_str_idx (sigmap:sigmap, strmap) =
     let val strs = Map.list strmap
-        val strs = Listsort.sort (fn ((x,y),(x1,y1)) => String.compare(x,x1)) strs
-        val im = List.map (fn (strid,{sigid,short_comment}) => 
+        val strs = ListSort.sort (fn ((x,y),(x1,y1)) => String.compare(x,x1)) strs
+        val im = List.map (fn (strid,{sigid,short_comment,origin}) =>
                               let val t = sigid ^ ".sml.html"
                                   val c =
                                     if short_comment <> "" then short_comment
-                                    else 
-                                      case Map.lookup (sigmap, sigid) of
+                                    else
+                                      case Map.lookup sigmap sigid of
                                         SOME {short_comment,...} => short_comment
                                       | NONE => ""
-                              in (strid, taga "div" (" title='" ^ c ^ "'") ($strid), [taga "a" (" href='" ^ t ^ "'") (tag "tt" ($sigid))(*, tag "em" ($c)*)])
+                              in (strid, taga "div" (" title='" ^ c ^ "'")
+                                              ($strid), [taga "a" (" href='" ^ t ^ "'")
+                                                              (tag "tt" ($sigid))])
                               end) strs
         val cs = gen_idx {head="Structures",
                           lines=im,
@@ -637,27 +649,28 @@ fun gen_str_idx (sigmap:sigmap, strmap) =
                           line_entry = #2,
                           line_bodies= #3,
                           sep=":"}
-    in writeFile "str_idx.html" (stringOfCString cs)
+    in writeFile "str_idx.html" (CS.toString cs)
     end
 
 fun gen_id_idx (idmap, sigmap, strmap) =
-    let val im = foldl (fn ((sigid, (ids,_,_,_)),a) =>
+    let val im = Map.Fold (fn ((sigid, (ids,_,_,_)),a) =>
                            let val strs = strs_for_sigid sigid strmap
                            in map (fn id => (id,sigid,strs)) ids @ a
-                           end) nil (Map.list idmap)
-      val im = Listsort.sort (fn((id,_,_),(id2,_,_)) => String.compare (id,id2)) im               
+                           end) nil idmap
+      val im = ListSort.sort (fn((id,_,_),(id2,_,_)) => String.compare (id,id2)) im
       fun compact nil a = rev a
         | compact ((id,sigid,strs)::rest) nil =
              compact rest [(id,[(sigid,strs)])]
         | compact ((id,sigid,strs)::rest) (acc as ((id2,args)::acc2)) =
           if id = id2 then
             compact rest ((id,(sigid,strs)::args)::acc2)
-          else 
+          else
             compact rest ((id,[(sigid,strs)])::acc)
       val im = compact im nil
       fun layout_impls (id, nil) = $""
-        | layout_impls (id, (sigid,strs)::rest) = 
-          List.foldl (fn (s,a) => a & taga "a" (" href='" ^ sigid ^ ".sml.html'") (tag "tt" ($s)) & (tag "tt" ($("." ^ id))) & ($" "))
+        | layout_impls (id, (sigid,strs)::rest) =
+          List.foldl (fn (s,a) => a & taga "a" (" href='" ^ sigid ^ ".sml.html'") (tag "tt" ($s))
+                                    & (tag "tt" ($("." ^ id))) & ($" "))
                      ($"") strs & layout_impls (id, rest)
       val cs =
           gen_idx {head="Identifiers",
@@ -673,10 +686,11 @@ fun gen_id_idx (idmap, sigmap, strmap) =
         | tags ((id, nil)::rest) = tags rest
         | tags ([(id, [(sigid,[strid])])]) = $(prtag id strid sigid)
         | tags ((id, (sigid,nil)::es)::rest) = tags ((id,es)::rest)
-        | tags ((id, (sigid,strid::strids)::es)::rest) = $(prtag id strid sigid) & $"," & tags ((id,(sigid,strids)::es)::rest)
+        | tags ((id, (sigid,strid::strids)::es)::rest) =
+          $(prtag id strid sigid) & $"," & tags ((id,(sigid,strids)::es)::rest)
       val alltags = $"var availableTags = [" & tags im & $"];"
-    in writeFile "id_idx.html" (stringOfCString cs)
-     ; writeFile "generated_tags.js" (stringOfCString alltags)
+    in writeFile "id_idx.html" (CS.toString cs)
+     ; writeFile "generated_tags.js" (CS.toString alltags)
     end
 
 fun gen (sigfiles:string list, implfiles) =
@@ -685,41 +699,44 @@ fun gen (sigfiles:string list, implfiles) =
           structure A : B
           structure A :> B
      *)
-    let 
-      val sigmap : sigmap = 
-          foldl (fn (x,a) => 
+    let
+      val sigmap : sigmap =
+          foldl (fn (x,a) =>
                     let val m = read_sig x
                     in Map.plus(a,m)
-                    end handle SigFormatError s => 
+                    end handle SigFormatError s =>
                                (print ("Skipping file: " ^ s ^ "\n");
                                 a)
-                ) (Map.emp()) sigfiles
+                ) Map.empty sigfiles
       val strmap : strmap =
-          foldl (fn (x,a) => Map.plus(a,read_impl sigmap x)) (Map.emp()) implfiles
+          foldl (fn (x,a) => Map.plus(a,read_impl sigmap x)) Map.empty implfiles
       fun out (arg as (s,a), idmap) =
-          let val (cstr, idmap2) = pp strmap arg 
-              val str = stringOfCString cstr
+          let val (cstr, idmap2) = pp strmap arg
+              val str = CS.toString cstr
               val file = s ^ ".sml.html"
           in writeFile file str;
              Map.plus(idmap,idmap2)
           end
-      val idmap = List.foldl out (Map.emp()) (Map.list sigmap);
+      val idmap = Map.Fold out Map.empty sigmap
     in
        gen_sig_idx (sigmap, strmap);
        gen_str_idx (sigmap, strmap);
        gen_id_idx (idmap, sigmap, strmap)
     end
 
-fun help() = 
-    (print "Usage: sigdoc [-sigs FILES] [-impl FILES]\n\n";
-     print "For further information, please consult the Sigdoc\n"; 
+fun help () =
+    (print "Usage: sigdoc [-libpath p] [-sigs FILES] [-impl FILES]\n\n";
+     print "For further information, please consult the Sigdoc\n";
      print "documentation at https://github.com/melsman/sigdoc\n")
 
 val sigs : string list ref = ref nil
 val impl : string list ref = ref nil
+
 fun reg r xs = r := xs
-val () = case ParseArg.run [ParseArg.Multi("-sigs",reg sigs),
+
+val () = case ParseArg.run [ParseArg.Unary("-libpath",reg libpath),
+                            ParseArg.Multi("-sigs",reg sigs),
                             ParseArg.Multi("-impl",reg impl)] of
-           [] => if !sigs = nil then help() 
+           [] => if !sigs = nil then help()
                  else gen(!sigs,!impl)
          | _ => help()

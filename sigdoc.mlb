@@ -1,7 +1,9 @@
 local
   $(SML_LIB)/basis/basis.mlb
-  $(SMACKAGE)/kitlib/v1/regexp/regexp.mlb
-  $(SMACKAGE)/kitlib/v1/listsort/listsort.mlb
+  lib/github.com/diku-dk/sml-regexp/regexp.mlb
+  lib/github.com/diku-dk/sml-sort/listsort.mlb
+  lib/github.com/diku-dk/sml-cstring/cstring.mlb
+  lib/github.com/diku-dk/sml-setmap/string_map.mlb
   PARSE_ARG.sig
   ParseArg.sml
 in sigdoc.sml
