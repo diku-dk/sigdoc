@@ -2,8 +2,6 @@
 
 _A signature documentation tool for Standard ML_
 
-----
-
 Sigdoc is a command-line tool (named `sigdoc`) for generating HTML
 documentation for Standard ML signatures. It takes as arguments a set
 of signature files, containing single signatures, and a set of
