@@ -13,15 +13,15 @@ tool generates a documentation page with documentation for each
 specified identifier. Also, the tool scans the implementation files
 for structure identifiers, identifying implementations of the
 signatures and generates a documentation page with an index over
-structure identifier (with links to the signature documentation).
+structure identifiers (with links to the signature documentation).
 
 The generated HTML documentation embeds an auto-completing search
-field that depends on the jquery library placed in the `lib/`
+field that depends on the jquery library placed in the `jslib/`
 subdirectory. For the generated code to work, copy the content of the
-`lib/` directory into the target directory for the documentation.
+`jslib/` directory into the target directory for the documentation.
 
 Based on the file paths, the tool also tries to identify if the
-signature or structure stem from an `smlpkg` package.
+signature or structure stem from an `smlpkg` package, and if so, a link to the package is embedded in the generated HTML documentation.
 
 The result of running `sigdoc` on a series of signature and
 implementation files, is a set of files written to the working
