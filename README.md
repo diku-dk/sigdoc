@@ -46,36 +46,15 @@ Signature files must conform to the following structure:
 
 ## TODO
 
-Generate also a grouped module overview:
+Generate also a package overview:
+
+    Package regexp - status
+    -----------------------
+    Signatures: REGEXP
+    Structures: RegExp
 
     Standard Basis Library
     ----------------------
-    General
-    Option
-    List
-    ...
+    Signatures: GENERAL, ...
+    Structures: General, Option, List, ...
 
-    Extended Basis Library
-    ----------------------
-    Pretty
-    Pickle
-    SetFun
-    MapFun
-    Hash
-    HashTable
-    Stack
-    Queue
-    Heap
-    ListSort
-    Random
-    Md5
-    DiGraph
-    Uref
-    Cstring
-    ParseComb
-
-    Tool Library
-    ------------
-    Draw2d
-    Levenstein
-    Html
