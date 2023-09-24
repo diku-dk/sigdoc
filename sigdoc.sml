@@ -321,6 +321,13 @@ datatype origin = ORIGIN_BASIS
 type sigmap = {short_comment:string, long_comment:string,
                src:string, origin:origin, comments:string} Map.map   (* dom=sigid *)
 
+fun pkg_id p =
+    let val re = RegExp.fromString ".*github.com/.*/(.*)"
+    in case RegExp.extract re p of
+           SOME [id] => id
+         | _ => p
+    end
+
 fun find_origin s =
     let val re_pkg = RegExp.fromString ".*(github.com/.*/.*)/.*"
         val re_bas = RegExp.fromString ".*basis.*"
@@ -480,6 +487,7 @@ fun page h idx b =
     let val str_idx_html = "str_idx.html"
         val sig_idx_html = "sig_idx.html"
         val id_idx_html = "id_idx.html"
+        val pkg_idx_html = "pkg_idx.html"
         val generated_tags_js = "generated_tags.js"
 
         val style_css = OS.Path.concat(!libpath,"style.css")
@@ -490,6 +498,7 @@ fun page h idx b =
         val str_idx_link = taga "a" (" href='" ^ str_idx_html ^ "'") ($"Structures")
         val sig_idx_link = taga "a" (" href='" ^ sig_idx_html ^ "'") ($"Signatures")
         val id_idx_link = taga "a" (" href='" ^ id_idx_html ^ "'") ($"Identifiers")
+        val pkg_idx_link = taga "a" (" href='" ^ pkg_idx_html ^ "'") ($"Packages")
         val search = taga0 "input" " id='tags' placeholder='Search' style='width:100%; margin-right:20px;'"
         val head =
           tag "head"
@@ -514,7 +523,7 @@ fun page h idx b =
       tag "html"
           (tag "head" head &
            tag "body"
-             (tag "p" (str_idx_link & $" | " & tdc sig_idx_link & $" | " & tdr id_idx_link) &
+             (tag "p" (str_idx_link & $" | " & tdc sig_idx_link & $" | " & tdr id_idx_link & $" | " & tdr pkg_idx_link) &
               taga "p" " style='width:100%'" search &
               tag0 "hr" &
               tag "h4" h &
@@ -628,20 +637,23 @@ fun gen_sig_idx (sigmap:sigmap, strmap) =
     in writeFile "sig_idx.html" (CS.toString cs)
     end
 
+fun pp_sigid s sigid =
+    let val t = sigid ^ ".sml.html"
+    in taga "a" (" href='" ^ t ^ "'") (tag "tt" ($s))
+    end
+
 fun gen_str_idx (sigmap:sigmap, strmap) =
     let val strs = Map.list strmap
         val strs = ListSort.sort (fn ((x,y),(x1,y1)) => String.compare(x,x1)) strs
         val im = List.map (fn (strid,{sigid,short_comment,origin}) =>
-                              let val t = sigid ^ ".sml.html"
-                                  val c =
+                              let val c =
                                     if short_comment <> "" then short_comment
                                     else
                                       case Map.lookup sigmap sigid of
                                         SOME {short_comment,...} => short_comment
                                       | NONE => ""
                               in (strid, taga "div" (" title='" ^ c ^ "'")
-                                              ($strid), [taga "a" (" href='" ^ t ^ "'")
-                                                              (tag "tt" ($sigid))])
+                                              ($strid), [pp_sigid sigid sigid])
                               end) strs
         val cs = gen_idx {head="Structures",
                           lines=im,
@@ -650,6 +662,54 @@ fun gen_str_idx (sigmap:sigmap, strmap) =
                           line_bodies= #3,
                           sep=":"}
     in writeFile "str_idx.html" (CS.toString cs)
+    end
+
+type pkgmap = {full:string, sigs:unit Map.map, impls:string Map.map} Map.map
+
+fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
+    let
+      fun insert_sig (p,sigid,m) =
+          let val id = pkg_id p
+          in case Map.lookup m id of
+                 SOME {full,sigs,impls} =>
+                 Map.add(id,{full=full,sigs=Map.add(sigid,(),sigs),impls=impls},m)
+               | NONE => Map.add(id,{full=p,sigs=Map.singleton(sigid,()),impls=Map.empty},m)
+          end
+      fun insert_str (p,strid,sigid,m) =
+          let val id = pkg_id p
+          in case Map.lookup m id of
+                 SOME {full,sigs,impls} =>
+                 Map.add(id,{full=full,sigs=sigs,impls=Map.add(strid,sigid,impls)},m)
+               | NONE => Map.add(id,{full=p,sigs=Map.empty,impls=Map.singleton(strid,sigid)},m)
+          end
+
+      val pkgmap = Map.Fold (fn ((sigid,{origin,...}),a) =>
+                                case origin of
+                                    ORIGIN_PKG p => insert_sig(p,sigid,a)
+                                  | ORIGIN_BASIS => insert_sig("basis",sigid,a)
+                                  | ORIGIN_NONE => insert_sig("unknown",sigid,a)) Map.empty sigmap
+      val pkgmap = Map.Fold (fn ((strid,{origin,sigid,...}),a) =>
+                                case origin of
+                                    ORIGIN_PKG p => insert_str(p,strid,sigid,a)
+                                  | ORIGIN_BASIS => insert_str("basis",strid,sigid,a)
+                                  | ORIGIN_NONE => insert_str("unknown",strid,sigid,a)) pkgmap strmap
+
+      val im = List.map (fn (p,{full,sigs,impls}) =>
+                            let val sigs = List.foldl (fn (s,a) => pp_sigid s s & ($" ") & a) ($"") (Map.dom sigs)
+                                val strs = List.foldl (fn ((s,sigid),a) => pp_sigid s sigid & ($" ") & a) ($"") (Map.list impls)
+                            in (p, taga "a" (" href='http://" ^ full ^ "' title='" ^ full ^ "'")
+                                        (tag "tt" ($p)),
+                                [$"Signatures: " & sigs,
+                                 $"Structures: " & strs]
+                               )
+                            end) (Map.list pkgmap)
+      val cs = gen_idx {head="Packages",
+                        lines=im,
+                        line_id= #1,
+                        line_entry= #2,
+                        line_bodies= #3,
+                        sep="&nbsp;"}
+    in writeFile "pkg_idx.html" (CS.toString cs)
     end
 
 fun gen_id_idx (idmap, sigmap, strmap) =
@@ -721,6 +781,7 @@ fun gen (sigfiles:string list, implfiles) =
     in
        gen_sig_idx (sigmap, strmap);
        gen_str_idx (sigmap, strmap);
+       gen_pkg_idx (sigmap, strmap);
        gen_id_idx (idmap, sigmap, strmap)
     end
 
