@@ -555,6 +555,10 @@ fun pp strmap (sigid, {short_comment,long_comment,src,comments,origin}) =
       fun layout_struct x =
           tag "b" ($("structure " ^ x ^ " : " ^ sigid ^ " ") & pp_origin origin & ($"\n"))
       val space = $" "
+      val comments =
+          pp_comments ids comments
+          handle Fail s => (print ("Warning: Failed to print comments for " ^ sigid ^ " - " ^ s ^ "\n"); $"")
+
       val output =
           page
               ($"Signature " & tag "code" ($sigid) & space & tag "tt" (pp_origin origin))
@@ -565,7 +569,7 @@ fun pp strmap (sigid, {short_comment,long_comment,src,comments,origin}) =
                 tag0 "hr" &
                 tag "pre" src2 &
                 tag0 "hr" &
-                pp_comments ids comments)
+                comments)
     in (output, idmap)
     end
 
