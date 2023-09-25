@@ -10,7 +10,7 @@ structure Map = struct
       Fold (fn ((s,v),a) => if p v then s::a else a) nil m
 end
 
-(* Concatenable strings *)
+(* Catenable strings *)
 structure CS = CString
 infix 6 &  (* as ^ *)
 val op & = CS.&
@@ -31,7 +31,7 @@ signature LEX = sig
              | LINK of {href:string,elem:string}
   val lex : string -> t list
   val defs : t list -> id list * excon list * tycon list * (strid*sigid) list
-  val conv : (strid -> sigid) -> t list -> t list
+  val conv : (strid -> sigid option) -> t list -> t list
   val isKw : string -> bool
   val pp  : t list -> CS.t
 end
@@ -64,7 +64,7 @@ fun plingencode id =
     String.translate (fn #"'" => "\\'" | c => String.str c) id
 
 fun init_space s =
-    (Char.isSpace(String.sub(s,0)))
+    Char.isSpace(String.sub(s,0))
     handle _ => false
 
 fun remove_init_ws s =
@@ -132,10 +132,7 @@ fun longid id =
       [id1,id2] => SOME (id1,id2)
     | _ => NONE
 
-fun lookupStructure m id =
-    m id
-
-fun conv m t =
+fun conv lookupStructure t =
     let fun conv0 t =
             case valId t of
               SOME(sp,id,rest) =>
@@ -146,18 +143,16 @@ fun conv m t =
                 nil => nil
               | ID id :: rest =>
                 if isKw id then KW id :: conv0 rest
-                else
-                  (case longid id of
-                     SOME(id1,id2) =>
-                     let val signat = lookupStructure m id1
-                       val file = signat ^ ".sml.html"
-                       val href1 = file ^ "#" ^ "$S" ^ id1
-                       val href2 = file ^ "#" ^ "$T" ^ id2
-                     in
-                       LINK{href=href1,elem=id1} :: ID "." ::
-                       LINK{href=href2,elem=id2} :: conv0 rest
-                     end
-                   | NONE => ID id :: conv0 rest)
+                else (case longid id of
+                          SOME(id1,id2) =>
+                          (case lookupStructure id1 of
+                               SOME sigid =>
+                               let val file = sigid ^ ".sml.html"
+                               in LINK{href=file,elem=id1} :: ID "." :: ID id2 :: conv0 rest
+                               end
+                             | NONE =>
+                               ID id1 :: ID "." :: ID id2 :: conv0 rest)
+                        | NONE => ID id :: conv0 rest)
               | e :: rest => e :: conv0 rest
     in conv0 t
     end
@@ -346,20 +341,38 @@ fun readFile f =
     end
 
 exception SigFormatError of string
-fun read_sig (f:string) : sigmap =
-    let val s = readFile f
-    in case R.extract (R.fromString ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end)[\n ]*\\(\\*\\*(.*)\\*\\).*") s of
-         SOME [c,sigid,src,cs] =>
+fun read_sig (f:string) (s:string) : (sigmap * string) option =
+    let val re = ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end).*\\(\\*\\*(.*)\\*\\)(.*)"
+    in case R.extract (R.fromString re) s of
+           SOME [c,sigid,src,cs,rest] =>
          let val origin = find_origin f
              val (shortc,longc) =
                  case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
                    SOME [shortc,longc] => (shortc,longc)
                  | _ => ("",c)
-         in Map.singleton(sigid, {short_comment=shortc,long_comment=longc,src=src,comments=cs,origin=origin})
+             val m = Map.singleton(sigid, {short_comment=shortc, long_comment=longc,
+                                           src=src, comments=cs, origin=origin})
+         in SOME (m,rest)
          end
-       | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
-                     raise Fail "read_sig wrong format 0")
-       | NONE => raise SigFormatError "content not on the form '(**...*)...signature XXX =...sig...end...(**...*)'"
+        | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
+                      raise Fail "read_sig wrong format 0")
+        | NONE =>
+         case R.extract (R.fromString ".*signature ([0-9a-zA-Z_]+)[ \n]*=.*") s of
+             SOME [sigid] =>
+             ( print("Warning: Signature binding for '" ^ sigid ^ "' not on the form " ^
+                     "'(**...*)...signature XXX =...sig...end...(**...*)'\n")
+             ; NONE)
+           | SOME _ => raise Fail "read_sig wrong format 1"
+           | NONE => NONE
+    end
+
+fun read_sigs (f:string) : sigmap =
+    let fun loop s =
+            case read_sig f s of
+                SOME(m,rest) => Map.plus(m,loop rest)
+              | NONE => Map.empty
+        val s = readFile f
+    in loop s
     end
 
 type strmap = {sigid:sigid,short_comment:string,origin:origin} Map.map   (* StrId -> SigId *)
@@ -549,7 +562,10 @@ fun pp strmap (sigid, {short_comment,long_comment,src,comments,origin}) =
     let val ts = Lex.lex src
       val ids = Lex.defs ts
       val idmap = Map.singleton(sigid,ids)
-      val ts = Lex.conv (fn x => x) ts
+      val ts = Lex.conv (fn x =>
+                            case Map.lookup strmap x of
+                                SOME {sigid,...} => SOME sigid
+                              | NONE => NONE) ts
       val src2 = Lex.pp ts
       open Lex
       fun layout_struct x =
@@ -699,8 +715,8 @@ fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
                                   | ORIGIN_NONE => insert_str("unknown",strid,sigid,a)) pkgmap strmap
 
       val im = List.map (fn (p,{full,sigs,impls}) =>
-                            let val sigs = List.foldl (fn (s,a) => pp_sigid s s & ($" ") & a) ($"") (Map.dom sigs)
-                                val strs = List.foldl (fn ((s,sigid),a) => pp_sigid s sigid & ($" ") & a) ($"") (Map.list impls)
+                            let val sigs = List.foldr (fn (s,a) => pp_sigid s s & ($" ") & a) ($"") (Map.dom sigs)
+                                val strs = List.foldr (fn ((s,sigid),a) => pp_sigid s sigid & ($" ") & a) ($"") (Map.list impls)
                             in (p, taga "a" (" href='http://" ^ full ^ "' title='" ^ full ^ "'")
                                         (tag "tt" ($p)),
                                 [$"Signatures: " & sigs,
@@ -724,12 +740,11 @@ fun gen_id_idx (idmap, sigmap, strmap) =
       val im = ListSort.sort (fn((id,_,_),(id2,_,_)) => String.compare (id,id2)) im
       fun compact nil a = rev a
         | compact ((id,sigid,strs)::rest) nil =
-             compact rest [(id,[(sigid,strs)])]
+          compact rest [(id,[(sigid,strs)])]
         | compact ((id,sigid,strs)::rest) (acc as ((id2,args)::acc2)) =
-          if id = id2 then
-            compact rest ((id,(sigid,strs)::args)::acc2)
-          else
-            compact rest ((id,[(sigid,strs)])::acc)
+          if id = id2
+          then compact rest ((id,(sigid,strs)::args)::acc2)
+          else compact rest ((id,[(sigid,strs)])::acc)
       val im = compact im nil
       fun layout_impls (id, nil) = $""
         | layout_impls (id, (sigid,strs)::rest) =
@@ -766,7 +781,7 @@ fun gen (sigfiles:string list, implfiles) =
     let
       val sigmap : sigmap =
           foldl (fn (x,a) =>
-                    let val m = read_sig x
+                    let val m = read_sigs x
                     in Map.plus(a,m)
                     end handle SigFormatError s =>
                                (print ("Skipping file: " ^ s ^ "\n");
@@ -790,7 +805,7 @@ fun gen (sigfiles:string list, implfiles) =
     end
 
 fun help () =
-    (print "Usage: sigdoc [-libpath p] [-sigs FILES] [-impl FILES]\n\n";
+    (print "Usage: sigdoc [-libpath p] FILES\n\n";
      print "For further information, please consult the Sigdoc\n";
      print "documentation at https://github.com/melsman/sigdoc\n")
 
@@ -799,9 +814,6 @@ val impl : string list ref = ref nil
 
 fun reg r xs = r := xs
 
-val () = case ParseArg.run [ParseArg.Unary("-libpath",reg libpath),
-                            ParseArg.Multi("-sigs",reg sigs),
-                            ParseArg.Multi("-impl",reg impl)] of
-           [] => if !sigs = nil then help()
-                 else gen(!sigs,!impl)
-         | _ => help()
+val () = case ParseArg.run [ParseArg.Unary("-libpath",reg libpath)] of
+             [] => help()
+           | files => gen(files,files)
