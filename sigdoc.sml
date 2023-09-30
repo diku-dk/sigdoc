@@ -4,6 +4,14 @@ val sigdoc_url = "http://github.com/melsman/sigdoc"
 
 fun println s = print (s ^"\n")
 
+fun readFile f =
+    let val () = print ("Reading file: " ^ f ^ "\n")
+        val is = TextIO.openIn f
+    in let val s = TextIO.inputAll is
+       in TextIO.closeIn is; s
+       end handle ? => (TextIO.closeIn is; raise ?)
+    end
+
 structure Map = struct
   open StringMap
   fun argsForWhich (m:'a map) (p : 'a -> bool) : string list =
@@ -102,6 +110,7 @@ fun isKw s =
     | "eqtype" => true
     | "end" => true
     | "exception" => true
+    | "sharing" => true
     | "sig" => true
     | "signature" => true
     | "structure" => true
@@ -109,6 +118,7 @@ fun isKw s =
     | "datatype" => true
     | "val" => true
     | "include" => true
+    | "where" => true
     | _ => false
 
 fun spaces t =
@@ -127,6 +137,33 @@ fun valId t =
        | _ => NONE)
     | _ => NONE
 
+fun structureSigid t =
+    case t of
+      ID "structure" :: t =>
+      (case spaces t of
+           SOME(space, ID strid :: rest) =>
+           (case spaces rest of
+                SOME(space2, ID symb :: rest2) =>
+                if symb = ":" orelse symb = ":>" then
+                  (case spaces rest2 of
+                       SOME(space3, ID sigid :: rest) =>
+                       if sigid <> "sig" then
+                         SOME (SPACE space, strid, SPACE space2, ID ":", SPACE space3, sigid, rest)
+                       else NONE
+                     | _ => NONE)
+                else NONE
+              | _ => NONE)
+         | _ => NONE)
+     | _ => NONE
+
+fun includeSigid t =
+    case t of
+      ID "include" :: t =>
+      (case spaces t of
+           SOME(sp, ID sigid :: rest) => SOME(SPACE sp,sigid,rest)
+         | _ => NONE)
+     | _ => NONE
+
 fun longid id =
     case String.fields (fn c => c = #".") id of
       [id1,id2] => SOME (id1,id2)
@@ -135,13 +172,25 @@ fun longid id =
 fun conv lookupStructure t =
     let fun conv0 t =
             case valId t of
-              SOME(sp,id,rest) =>
-              KW "val" :: sp :: LINK{href="#" ^ encode id,
-                                     elem=id} :: conv0 rest
-            | NONE =>
-              case t of
-                nil => nil
-              | ID id :: rest =>
+                SOME(sp,id,rest) =>
+                KW "val" :: sp :: LINK{href="#" ^ encode id,
+                                       elem=id} :: conv0 rest
+              | NONE =>
+           case structureSigid t of
+               SOME (sp,strid,sp2,colon,sp3,sigid,rest) =>
+               (KW "structure" :: sp :: ID strid :: sp2 :: colon :: sp3 ::
+                LINK{href=sigid ^ ".sml.html",
+                     elem=sigid} :: conv0 rest)
+             | NONE =>
+           case includeSigid t of
+               SOME(sp,sigid,rest) =>
+               (KW "include" :: sp ::
+                LINK{href=sigid ^ ".sml.html",
+                     elem=sigid} :: conv0 rest)
+             | NONE =>
+           case t of
+               nil => nil
+             | ID id :: rest =>
                 if isKw id then KW id :: conv0 rest
                 else (case longid id of
                           SOME(id1,id2) =>
@@ -289,6 +338,9 @@ fun defs ts =
             | ID "structure" :: SPACE _ :: ID strid ::
               SPACE _ :: ID ":" :: SPACE _ :: ID sigid :: ts =>
               loop (ids,tycons,excons,(strid,sigid)::strs) ts
+            | ID "structure" :: SPACE _ :: ID strid ::
+              SPACE _ :: ID ":>" :: SPACE _ :: ID sigid :: ts =>
+              loop (ids,tycons,excons,(strid,sigid)::strs) ts
             | ID kw :: SPACE _ :: ts =>
               if typespec kw then
                 (case eat_tyvars ts of
@@ -332,38 +384,32 @@ fun find_origin s =
                 else ORIGIN_NONE
     end
 
-fun readFile f =
-    let val () = print ("Reading file: " ^ f ^ "\n")
-        val is = TextIO.openIn f
-    in let val s = TextIO.inputAll is
-       in TextIO.closeIn is; s
-       end handle ? => (TextIO.closeIn is; raise ?)
-    end
-
 exception SigFormatError of string
 fun read_sig (f:string) (s:string) : (sigmap * string) option =
-    let val re = ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end).*\\(\\*\\*(.*)\\*\\)(.*)"
+    let val re = ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end[\n ]+(where .*)?)[\n ]*\\(\\*\\*(.*)\\*\\)(.*)"
+        fun doit (c,sigid,src,cs,rest) =
+            let val origin = find_origin f
+                val (shortc,longc) =
+                    case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
+                        SOME [shortc,longc] => (shortc,longc)
+                      | _ => if CharVector.exists (fn c => c = #"\n") c then ("",c) else (c,"")
+                val m = Map.singleton(sigid, {short_comment=shortc, long_comment=longc,
+                                              src=src, comments=cs, origin=origin})
+            in SOME (m,rest)
+            end
     in case R.extract (R.fromString re) s of
-           SOME [c,sigid,src,cs,rest] =>
-         let val origin = find_origin f
-             val (shortc,longc) =
-                 case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
-                   SOME [shortc,longc] => (shortc,longc)
-                 | _ => ("",c)
-             val m = Map.singleton(sigid, {short_comment=shortc, long_comment=longc,
-                                           src=src, comments=cs, origin=origin})
-         in SOME (m,rest)
-         end
-        | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
-                      raise Fail "read_sig wrong format 0")
-        | NONE =>
-         case R.extract (R.fromString ".*signature ([0-9a-zA-Z_]+)[ \n]*=.*") s of
-             SOME [sigid] =>
-             ( print("Warning: Signature binding for '" ^ sigid ^ "' not on the form " ^
-                     "'(**...*)...signature XXX =...sig...end...(**...*)'\n")
-             ; NONE)
-           | SOME _ => raise Fail "read_sig wrong format 1"
-           | NONE => NONE
+           SOME [c,sigid,src,cs,rest] => doit(c,sigid,src,cs,rest)
+         | SOME [c,sigid,whe,src,cs,rest] => doit(c,sigid,src,cs,rest)
+         | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
+                       raise Fail "read_sig wrong format 0")
+         | NONE =>
+           case R.extract (R.fromString ".*signature ([0-9a-zA-Z_]+)[ \n]*=.*") s of
+               SOME [sigid] =>
+               ( print("Warning: Signature binding for '" ^ sigid ^ "' not on the form " ^
+                       "'(**...*)...signature XXX =...sig...end...(**...*)'\n")
+               ; NONE)
+             | SOME _ => raise Fail "read_sig wrong format 1"
+             | NONE => NONE
     end
 
 fun read_sigs (f:string) : sigmap =
@@ -379,27 +425,40 @@ type strmap = {sigid:sigid,short_comment:string,origin:origin} Map.map   (* StrI
 
 fun read_impl (sigmap:sigmap) (f:string) : strmap =
     let val origin = find_origin f
-        fun loop acc s =
-            case R.extract (R.fromString "(.*)structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+) .*") s of
-              SOME [rest,strid,sigid] =>
-              let val (rest, c) =
-                      case R.extract (R.fromString "(.*)\\(\\*\\*([^\n]*)\\*\\)\n") rest of
-                        SOME [rest,c] => (rest,c)
-                      | SOME [c] => ("",c)
-                      | _ => (rest,"")
-                  val acc = case Map.lookup sigmap sigid of
-                                NONE => (print ("Skipping " ^ strid ^ " : " ^ sigid ^
-                                                ", as " ^ sigid ^ " is not known.\n");
-                                         acc)
-                              | SOME _ => Map.add(strid,{sigid=sigid,short_comment=c,origin=origin},acc)
-              in loop acc rest
-              end
-            | SOME [strid,sigid] =>
-              Map.add(strid,{sigid=sigid,short_comment="",origin=origin},acc)
-            | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
-                          raise Fail "read_impl wrong format 1")
-            | NONE => acc
-    in loop Map.empty (readFile f)
+        fun start acc s =
+            let fun doit (c,strid,sigid,rest) =
+                    let val c = case R.extract (R.fromString "\\(\\*(\\*)?(.*)\\*\\)") c of
+                                    SOME [_,c] => c
+                                  | _ => ""
+                        val acc = case Map.lookup sigmap sigid of
+                                      NONE => (print ("Skipping " ^ strid ^ " : " ^ sigid ^
+                                                      ", as " ^ sigid ^ " is not known.\n");
+                                               acc)
+                                    | SOME _ => Map.add(strid,{sigid=sigid,short_comment=c,origin=origin},acc)
+                    in cont acc rest
+                    end
+            in case R.extract (R.fromString "[ \n]*(\\(\\*\\*?[^*]*\\*\\))?[ \n]*structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+)[\n ]+(.*)") s of
+                   SOME [c,strid,sigid,rest] => doit (c,strid,sigid,rest)
+                 | SOME [strid,sigid,rest] => doit ("",strid,sigid,rest)
+                 | SOME ss => (List.app (fn s => print(s ^ "\n")) ss;
+                               raise Fail "read_impl wrong format 1")
+                 | NONE => cont acc s
+            end
+        and cont acc s =
+            case R.extract (R.fromString ".*\\(\\*\\* SigDoc \\*\\)[ \n]*structure ([0-9a-zA-Z_]+) :>? ([0-9a-zA-Z_]+)[\n ]+(.*)") s of
+                SOME [strid,sigid,rest] =>
+                let val acc = case Map.lookup sigmap sigid of
+                                  NONE => (print ("Skipping " ^ strid ^ " : " ^ sigid ^
+                                                  ", as " ^ sigid ^ " is not known.\n");
+                                           acc)
+                                | SOME _ => Map.add(strid,{sigid=sigid,short_comment="",origin=origin},acc)
+                in cont acc rest
+                end
+              | SOME _ => raise Fail "cont"
+              | NONE => acc
+        val m = start Map.empty (readFile f)
+    in if Map.isEmpty m then print ("No structures to document in " ^ f ^ "\n") else ()
+       ; m
     end
 
 fun match_id nil h = NONE
@@ -448,7 +507,9 @@ fun pp_comments (ids,tycons,excons,strs) s =
             else loop cs (l::a) ls
           | loop cs a nil = rev(finalize a cs)
       val cs = loop [] [] lines
-      fun layout_head h = if CS.toString h = "Discussion" then tag "i" h else ($"[") & tag "tt" h & ($"]")
+      fun layout_head h = if CS.toString h = "Discussion"
+                          then tag "i" h
+                          else ($"[") & tag "tt" h & ($"]")
       fun layout_body b =
           let
             val b = remove_init_ws b
@@ -465,7 +526,7 @@ fun pp_comments (ids,tycons,excons,strs) s =
                     if init_space l0 then
                       if next_init_space ls then
                         loop ls true (l::acc)
-                      else loop ls true acc
+                      else loop ls true (l::acc) (* was acc *)
                     else loop ls false (l::"</pre>\n"::acc)
                   else if only_ws l then
                     loop ls false acc
@@ -495,6 +556,13 @@ fun pp_comments (ids,tycons,excons,strs) s =
     end
 
 val libpath : string ref = ref ""
+val about_html : string ref = ref ""
+
+fun load_about () =
+    case !about_html of
+        "" => NONE
+      | f => SOME (readFile f)
+             handle _ => raise Fail ("Failed to read file " ^ f)
 
 fun page h idx b =
     let val str_idx_html = "str_idx.html"
@@ -520,6 +588,7 @@ fun page h idx b =
              taga0 "script" (" src='" ^ jquery_ui_js ^ "'") &
              taga0 "script" (" src='" ^ generated_tags_js ^ "'") &
              taga0 "link" (" rel='stylesheet' href='" ^ style_css ^ "'") &
+             tag "script" ($"function copyText(text) { console.log('hi'); try { navigator.clipboard.writeText(text); console.log('Text copied!'); } catch (err) { console.error('error copying text', err); } }") &
              tag "script"
                ($ "$(function() { \
                   \  $( '#tags' ).autocomplete({\
@@ -532,13 +601,17 @@ fun page h idx b =
         fun tdr e = taga "td" " align='right'" e
         fun tdc e = taga "td" " align='center'" e
         fun td e = tag "td" e
+
+        val about_link =
+            if !about_html = ""
+            then $""
+            else $" | " & tdr (taga "a" (" href='about.html'") ($"About"))
     in
       tag "html"
           (tag "head" head &
            tag "body"
-             (tag "p" (str_idx_link & $" | " & tdc sig_idx_link & $" | " & tdr id_idx_link & $" | " & tdr pkg_idx_link) &
+             (tag "p" (str_idx_link & $" | " & tdc sig_idx_link & $" | " & tdr id_idx_link & $" | " & tdr pkg_idx_link & about_link) &
               taga "p" " style='width:100%'" search &
-              tag0 "hr" &
               tag "h4" h &
               tag "p" idx &
               b &
@@ -574,15 +647,20 @@ fun pp strmap (sigid, {short_comment,long_comment,src,comments,origin}) =
       val comments =
           pp_comments ids comments
           handle Fail s => (print ("Warning: Failed to print comments for " ^ sigid ^ " - " ^ s ^ "\n"); $"")
-
+      val structures =
+          let val strs = strs_for_sigid sigid strmap
+          in case strs of
+                 nil => $""
+               | _ => tag "pre" (CS.concat (map layout_struct strs))
+                          & tag0 "hr"
+          end
       val output =
           page
               ($"Signature " & tag "code" ($sigid) & space & tag "tt" (pp_origin origin))
               ($(htmlencode short_comment))
               ($(htmlencode long_comment) &
                 tag0 "hr" &
-                tag "pre" (CS.concat (map layout_struct (strs_for_sigid sigid strmap))) &
-                tag0 "hr" &
+                structures &
                 tag "pre" src2 &
                 tag0 "hr" &
                 comments)
@@ -643,10 +721,10 @@ fun gen_sig_idx (sigmap:sigmap, strmap) =
         val sigs = ListSort.sort (fn (x,y) => String.compare (#1 x,#1 y)) sigs
         val im = List.map (fn (s,{short_comment,...}) =>
                               let val t = s ^ ".sml.html"
-                                  val strs = strs_for_sigid s strmap
-                                  val strs = List.foldl (fn (s,a) => tag "tt" ($s) & ($" ") & a) ($"") strs
-                              in (s, taga "a" (" href='" ^ t ^ "' title='" ^ short_comment ^ "'")
-                                          (tag "tt" ($s)), [strs])
+                                  val strs = map (fn s => tag "tt" ($s)) (strs_for_sigid s strmap)
+                                  val strs = CS.concatWith ", " strs
+                              in (s, taga "a" (" href='" ^ t ^ "'")
+                                          (tag "tt" ($s)), [strs, tag "i" ($short_comment)])
                               end) sigs
         val cs = gen_idx {head="Signatures",
                           lines=im,
@@ -672,8 +750,7 @@ fun gen_str_idx (sigmap:sigmap, strmap) =
                                       case Map.lookup sigmap sigid of
                                         SOME {short_comment,...} => short_comment
                                       | NONE => ""
-                              in (strid, taga "div" (" title='" ^ c ^ "'")
-                                              ($strid), [pp_sigid sigid sigid])
+                              in (strid, tag "div" ($strid), [pp_sigid sigid sigid, tag "i" ($c)])
                               end) strs
         val cs = gen_idx {head="Structures",
                           lines=im,
@@ -685,6 +762,8 @@ fun gen_str_idx (sigmap:sigmap, strmap) =
     end
 
 type pkgmap = {full:string, sigs:unit Map.map, impls:string Map.map} Map.map
+
+fun copyText s = taga "span" " class='tooltip'" (taga "span" " class='tooltiptext'" ($"Copy Package URL") & taga "button" (" class='button1' onclick=\"copyText('http://" ^ s ^ "')\"") ($"❐"))
 
 fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
     let
@@ -717,8 +796,10 @@ fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
       val im = List.map (fn (p,{full,sigs,impls}) =>
                             let val sigs = List.foldr (fn (s,a) => pp_sigid s s & ($" ") & a) ($"") (Map.dom sigs)
                                 val strs = List.foldr (fn ((s,sigid),a) => pp_sigid s sigid & ($" ") & a) ($"") (Map.list impls)
-                            in (p, taga "a" (" href='http://" ^ full ^ "' title='" ^ full ^ "'")
-                                        (tag "tt" ($p)),
+                                val link = if p = "basis" then $"Basis Library"
+                                           else taga "a" (" href='http://" ^ full ^ "' title='" ^ full ^ "'")
+                                                     (tag "tt" ($p)) & $" " & copyText full
+                            in (p, link,
                                 [$"Signatures: " & sigs,
                                  $"Structures: " & strs]
                                )
@@ -779,6 +860,12 @@ fun gen (sigfiles:string list, implfiles) =
           structure A :> B
      *)
     let
+      val () = case load_about () of
+                   SOME about =>
+                   let val p = CS.toString (page ($"About") ($"") ($about))
+                   in writeFile "about.html" p
+                   end
+                 | NONE => ()
       val sigmap : sigmap =
           foldl (fn (x,a) =>
                     let val m = read_sigs x
@@ -802,10 +889,18 @@ fun gen (sigfiles:string list, implfiles) =
        gen_str_idx (sigmap, strmap);
        gen_pkg_idx (sigmap, strmap);
        gen_id_idx (idmap, sigmap, strmap)
-    end
+    end handle Fail s => (println ("** Error: " ^ s); OS.Process.exit OS.Process.failure)
 
 fun help () =
-    (print "Usage: sigdoc [-libpath p] FILES\n\n";
+    (print "Usage: sigdoc [-libpath p] [-about f] FILES\n\n";
+     print " -libpath p : specify the path to the js-library and\n\
+           \              style files, relative to the working\n\
+           \              directory.\n";
+     print " -about f   : specify a file with HTML to embed in an\n\
+           \              About tab.\n";
+     print "FILES include .sml and .sig files, which may contain\n\
+           \signatures and structures. FILES may also contain\n\
+           \.mlb files, which are treated separately.\n";
      print "For further information, please consult the Sigdoc\n";
      print "documentation at https://github.com/melsman/sigdoc\n")
 
@@ -814,6 +909,7 @@ val impl : string list ref = ref nil
 
 fun reg r xs = r := xs
 
-val () = case ParseArg.run [ParseArg.Unary("-libpath",reg libpath)] of
+val () = case ParseArg.run [ParseArg.Unary("-libpath",reg libpath),
+                            ParseArg.Unary("-about",reg about_html)] of
              [] => help()
            | files => gen(files,files)
