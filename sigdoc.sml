@@ -949,7 +949,8 @@ fun gen (files:string list) =
     end handle Fail s => (println ("** Error: " ^ s); OS.Process.exit OS.Process.failure)
 
 fun help () =
-    (print "Usage: sigdoc [-libpath p] [-about f] FILES\n\n";
+    (print "Usage: sigdoc [-libpath p] [-about f] [-logo s]\n\
+           \              [-pkg f] FILES\n\n";
      print " -libpath p : specify the path to the js-library and\n\
            \              style files, relative to the working\n\
            \              directory.\n";
@@ -957,12 +958,11 @@ fun help () =
            \              About tab.\n";
      print " -logo s    : specify html that presents a logo.\n";
      print " -pkg f     : specify path to smlpkg package file to\n\
-           \              read package versions from.";
+           \              read package versions from.\n";
      print "FILES include .sml and .sig files, which may contain\n\
-           \signatures and structures. FILES may also contain\n\
-           \.mlb files, which are treated separately.\n";
+           \signatures and structures.\n";
      print "For further information, please consult the Sigdoc\n";
-     print "documentation at https://github.com/melsman/sigdoc\n")
+     print ("documentation at " ^ sigdoc_url ^ "\n"))
 
 fun reg r xs = r := xs
 
