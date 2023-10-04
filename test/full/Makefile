@@ -1,5 +1,6 @@
+SMLPKG ?= smlpkg
 
-SIGDOC ?= ../sigdoc
+SIGDOC ?= ../../sigdoc
 
 BASIS ?= ~/gits/mlkit/basis
 
@@ -11,7 +12,7 @@ BASISFILES0 = GENERAL.sig General.sml OPTION.sig Option.sml LIST.sig List.sml LI
   STRING.sig SUBSTRING.sig Substring.sml TEXT.sig Text.sml BOOL.sig Bool.sml \
   WORD.sig Word.sml Word64.sml Word63.sml Word32.sml Word31.sml Word8.sml Word16.sml \
   PACK_WORD.sml Pack32Little.sml Pack32Big.sml BYTE.sig Byte.sml INTEGER.sml Int.sml \
-  Int32.sml Int31.sml Int63.sml Int64.sml MATH.sig Math.sml REAL.sig Real.sml \
+  Int32.sml Int31.sml Int63.sml Int64.sml MATH.sig Math.sml REAL.sig Real.sml IEEE_REAL.sig IEEEReal.sml \
   PACK_REAL.sml PackRealLittle.sml PackRealBig.sml RealArrayVector.sml INT_INF.sml \
   IntInf.sml IO.sml TIME.sig Time.sml OS_PATH.sml Path.sml \
   OS_FILE_SYS.sml FileSys.sml OS_PROCESS.sml Process.sml OS_IO.sml OS.sml \
@@ -25,16 +26,26 @@ BASISFILES0 = GENERAL.sig General.sml OPTION.sig Option.sml LIST.sig List.sml LI
 
 BASISFILES:=$(BASISFILES0:%=$(BASIS)/%)
 
-.PHONY: test
-test: about0.html
-	$(SIGDOC) -about about0.html -libpath ../jslib ../lib/github.com/diku-dk/*/*.{sig,sml} ../lib/github.com/diku-dk/*/*/*.{sig,sml} $(BASISFILES)
+LOGO = '<a href="https://elsman.com/mlkit/"><img height="30pt" src="mlkit.png"/></a>'
 
-about0.html: about.md
+.PHONY: test
+test: about0.html lib jslib
+	$(SIGDOC) -pkg sml.pkg -logo $(LOGO) -about about0.html -libpath jslib lib/github.com/diku-dk/*/*.{sig,sml} lib/github.com/diku-dk/*/*/*.{sig,sml} $(BASISFILES)
+
+jslib:
+	cp -pa ../../jslib .
+
+about0.html: ../about.md
 	pandoc -o $@ $<
 
-test0:
-	$(SIGDOC) -libpath ../jslib $(BASISFILES)
+lib: sml.pkg
+	$(SMLPKG) sync
 
 .PHONY: clean
 clean:
-	rm -rf *~ *.html generated_tags.js
+	rm -rf *~ *.html generated_tags.js jslib
+
+.PHONY: realclean
+realclean:
+	$(MAKE) clean
+	rm -rf lib

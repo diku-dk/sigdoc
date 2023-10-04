@@ -59,3 +59,15 @@ body {
   visibility: visible;
   opacity: 1;
 }
+
+.vbadge{
+  background: #11bb44;
+  font-family: Verdana, sans-serif;
+  font-style: normal;
+  padding: 6px 10px 2px 10px;
+  font-size: 10px;
+  color: #ffffff;
+  border-radius: 3px;
+  line-height: 0;
+  vertical-align: center;
+}

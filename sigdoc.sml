@@ -1,6 +1,6 @@
 (* Utilities *)
 
-val sigdoc_url = "http://github.com/melsman/sigdoc"
+val sigdoc_url = "http://github.com/diku-dk/sigdoc"
 
 fun println s = print (s ^"\n")
 
@@ -362,7 +362,7 @@ type strid = string
 type id = string
 
 datatype origin = ORIGIN_BASIS
-                | ORIGIN_PKG of string
+                | ORIGIN_PKG of string * string
                 | ORIGIN_NONE
 
 type sigmap = {short_comment:string, long_comment:string,
@@ -375,20 +375,23 @@ fun pkg_id p =
          | _ => p
     end
 
-fun find_origin s =
+fun find_origin pkgvmap s =
     let val re_pkg = RegExp.fromString ".*(github.com/.*/.*)/.*"
         val re_bas = RegExp.fromString ".*basis.*"
     in case RegExp.extract re_pkg s of
-           SOME [p] => ORIGIN_PKG p
+           SOME [p] =>
+           (case Map.lookup pkgvmap p of
+                SOME v => ORIGIN_PKG (p,v)
+              | NONE => ORIGIN_PKG (p,""))
          | _ => if RegExp.match re_bas s then ORIGIN_BASIS
                 else ORIGIN_NONE
     end
 
 exception SigFormatError of string
-fun read_sig (f:string) (s:string) : (sigmap * string) option =
+fun read_sig pkgvmap (f:string) (s:string) : (sigmap * string) option =
     let val re = ".*\\(\\*\\*(.*)\\*\\).*(signature ([0-9a-zA-Z_]+) .*end[\n ]+(where .*)?)[\n ]*\\(\\*\\*(.*)\\*\\)(.*)"
         fun doit (c,sigid,src,cs,rest) =
-            let val origin = find_origin f
+            let val origin = find_origin pkgvmap f
                 val (shortc,longc) =
                     case R.extract (R.fromString "([^\n]*)\n[ ]*\n(.*)") c of
                         SOME [shortc,longc] => (shortc,longc)
@@ -412,9 +415,9 @@ fun read_sig (f:string) (s:string) : (sigmap * string) option =
              | NONE => NONE
     end
 
-fun read_sigs (f:string) : sigmap =
+fun read_sigs pkgvmap (f:string) : sigmap =
     let fun loop s =
-            case read_sig f s of
+            case read_sig pkgvmap f s of
                 SOME(m,rest) => Map.plus(m,loop rest)
               | NONE => Map.empty
         val s = readFile f
@@ -423,8 +426,8 @@ fun read_sigs (f:string) : sigmap =
 
 type strmap = {sigid:sigid,short_comment:string,origin:origin} Map.map   (* StrId -> SigId *)
 
-fun read_impl (sigmap:sigmap) (f:string) : strmap =
-    let val origin = find_origin f
+fun read_impl pkgvmap (sigmap:sigmap) (f:string) : strmap =
+    let val origin = find_origin pkgvmap f
         fun start acc s =
             let fun doit (c,strid,sigid,rest) =
                     let val c = case R.extract (R.fromString "\\(\\*(\\*)?(.*)\\*\\)") c of
@@ -557,6 +560,8 @@ fun pp_comments (ids,tycons,excons,strs) s =
 
 val libpath : string ref = ref ""
 val about_html : string ref = ref ""
+val logo_html : string ref = ref ""
+val pkgfile : string ref = ref ""
 
 fun load_about () =
     case !about_html of
@@ -605,12 +610,23 @@ fun page h idx b =
         val about_link =
             if !about_html = ""
             then $""
-            else $" | " & tdr (taga "a" (" href='about.html'") ($"About"))
+            else tdr (taga "a" (" href='about.html'") ($"About"))
+
+        val logo =
+            if !logo_html = ""
+            then $""
+            else td ($(!logo_html))
     in
       tag "html"
           (tag "head" head &
            tag "body"
-             (tag "p" (str_idx_link & $" | " & tdc sig_idx_link & $" | " & tdr id_idx_link & $" | " & tdr pkg_idx_link & about_link) &
+           (taga "table" " width='100%'"
+                 (tr (logo & td ($"Library Documentation")
+                           & tdc str_idx_link
+                           & tdc sig_idx_link
+                           & tdc id_idx_link
+                           & tdc pkg_idx_link
+                           & about_link)) &
               taga "p" " style='width:100%'" search &
               tag "h4" h &
               tag "p" idx &
@@ -622,13 +638,21 @@ fun page h idx b =
 fun strs_for_sigid sigid (strmap:strmap) =
     Map.argsForWhich strmap (fn {sigid=x,...} => sigid=x)
 
+fun pp_version v =
+    $" " & taga "span" " class='vbadge'" ($("v" ^ v))
+
 fun pp_origin origin =
     case origin of
         ORIGIN_BASIS => tag "i" ($ "(basis)")
-      | ORIGIN_PKG p => tag "i"
-                            ($"(pkg " &
-                              taga "a" (" href='http://" ^ p ^ "'") ($ p) &
-                              $")")
+      | ORIGIN_PKG (p,v) =>
+        let val version = case v of
+                              "" => $""
+                            | _ => pp_version v
+        in tag "i"
+               ($"(pkg " &
+                 taga "a" (" href='http://" ^ p ^ "'") ($p) &
+                 version & $")")
+        end
       | ORIGIN_NONE => tag "i" ($"(none)")
 
 fun pp strmap (sigid, {short_comment,long_comment,src,comments,origin}) =
@@ -761,11 +785,24 @@ fun gen_str_idx (sigmap:sigmap, strmap) =
     in writeFile "str_idx.html" (CS.toString cs)
     end
 
-type pkgmap = {full:string, sigs:unit Map.map, impls:string Map.map} Map.map
+type pkgversion = string
+
+fun read_pkgfile () : pkgversion Map.map =
+    case !pkgfile of
+        "" => Map.empty
+      | pkgf => let val re = RegExp.fromString ".*([^ ]+)[ \n]+([.0-9]+)[ \n]+(.*)"
+                    fun loop s m =
+                        case RegExp.extract re s of
+                            SOME [p, v, rest] => loop rest (Map.add(p,v,m))
+                          | _ => m
+                in loop (readFile pkgf) Map.empty
+                end
+
+type pkgmap = {full:string, sigs:unit Map.map, impls:string Map.map, version:string} Map.map
 
 fun copyText s = taga "span" " class='tooltip'" (taga "span" " class='tooltiptext'" ($"Copy Package URL") & taga "button" (" class='button1' onclick=\"copyText('http://" ^ s ^ "')\"") ($"❐"))
 
-fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
+fun gen_pkg_idx (sigmap:sigmap, strmap:strmap, pkgvmap:pkgversion Map.map) =
     let
       fun insert_sig (p,sigid,m) =
           let val id = pkg_id p
@@ -784,12 +821,12 @@ fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
 
       val pkgmap = Map.Fold (fn ((sigid,{origin,...}),a) =>
                                 case origin of
-                                    ORIGIN_PKG p => insert_sig(p,sigid,a)
+                                    ORIGIN_PKG (p,_) => insert_sig(p,sigid,a)
                                   | ORIGIN_BASIS => insert_sig("basis",sigid,a)
                                   | ORIGIN_NONE => insert_sig("unknown",sigid,a)) Map.empty sigmap
       val pkgmap = Map.Fold (fn ((strid,{origin,sigid,...}),a) =>
                                 case origin of
-                                    ORIGIN_PKG p => insert_str(p,strid,sigid,a)
+                                    ORIGIN_PKG (p,_) => insert_str(p,strid,sigid,a)
                                   | ORIGIN_BASIS => insert_str("basis",strid,sigid,a)
                                   | ORIGIN_NONE => insert_str("unknown",strid,sigid,a)) pkgmap strmap
 
@@ -799,8 +836,22 @@ fun gen_pkg_idx (sigmap:sigmap, strmap:strmap) =
                                 val link = if p = "basis" then $"Basis Library"
                                            else taga "a" (" href='http://" ^ full ^ "' title='" ^ full ^ "'")
                                                      (tag "tt" ($p)) & $" " & copyText full
+                                val info =
+                                    if p = "basis" then $""
+                                    else
+                                      let val pkgversion =
+                                              case Map.lookup pkgvmap full of
+                                                  SOME v => pp_version v
+                                                | NONE => $""
+                                          val badge = "https://" ^ full ^ "/workflows/CI/badge.svg"
+                                      in
+                                        pkgversion & $" " &
+                                         taga "a" (" href='https://" ^ full ^ "/actions'")
+                                         (taga0 "img" (" style='vertical-align:bottom' src='"
+                                                       ^ badge ^ "'"))
+                                      end
                             in (p, link,
-                                [$"Signatures: " & sigs,
+                                [info, $"Signatures: " & sigs,
                                  $"Structures: " & strs]
                                )
                             end) (Map.list pkgmap)
@@ -853,11 +904,16 @@ fun gen_id_idx (idmap, sigmap, strmap) =
      ; writeFile "generated_tags.js" (CS.toString alltags)
     end
 
-fun gen (sigfiles:string list, implfiles) =
-    (* Assumption: One signature for each sigfile (named according to the file).
-     * Look in all implfiles for strings of the form
-          structure A : B
-          structure A :> B
+fun gen (files:string list) =
+    (* Look in all files for signature snippets on the form
+
+          "(** Header\nLong comment... *) signature A = sig end (** defs... *)"
+
+     * Look in all files for structure snippets on the form
+
+          1. "(** SigDoc *) structure A : B"
+          2. "(** SigDoc *) structure A :> B"
+          3. "$(* *) structure A :> B"   (* first occurence in file *)
      *)
     let
       val () = case load_about () of
@@ -866,16 +922,17 @@ fun gen (sigfiles:string list, implfiles) =
                    in writeFile "about.html" p
                    end
                  | NONE => ()
+      val pkgvmap = read_pkgfile ()
       val sigmap : sigmap =
           foldl (fn (x,a) =>
-                    let val m = read_sigs x
+                    let val m = read_sigs pkgvmap x
                     in Map.plus(a,m)
                     end handle SigFormatError s =>
                                (print ("Skipping file: " ^ s ^ "\n");
                                 a)
-                ) Map.empty sigfiles
+                ) Map.empty files
       val strmap : strmap =
-          foldl (fn (x,a) => Map.plus(a,read_impl sigmap x)) Map.empty implfiles
+          foldl (fn (x,a) => Map.plus(a,read_impl pkgvmap sigmap x)) Map.empty files
       fun out (arg as (s,a), idmap) =
           let val (cstr, idmap2) = pp strmap arg
               val str = CS.toString cstr
@@ -887,7 +944,7 @@ fun gen (sigfiles:string list, implfiles) =
     in
        gen_sig_idx (sigmap, strmap);
        gen_str_idx (sigmap, strmap);
-       gen_pkg_idx (sigmap, strmap);
+       gen_pkg_idx (sigmap, strmap, pkgvmap);
        gen_id_idx (idmap, sigmap, strmap)
     end handle Fail s => (println ("** Error: " ^ s); OS.Process.exit OS.Process.failure)
 
@@ -898,18 +955,20 @@ fun help () =
            \              directory.\n";
      print " -about f   : specify a file with HTML to embed in an\n\
            \              About tab.\n";
+     print " -logo s    : specify html that presents a logo.\n";
+     print " -pkg f     : specify path to smlpkg package file to\n\
+           \              read package versions from.";
      print "FILES include .sml and .sig files, which may contain\n\
            \signatures and structures. FILES may also contain\n\
            \.mlb files, which are treated separately.\n";
      print "For further information, please consult the Sigdoc\n";
      print "documentation at https://github.com/melsman/sigdoc\n")
 
-val sigs : string list ref = ref nil
-val impl : string list ref = ref nil
-
 fun reg r xs = r := xs
 
-val () = case ParseArg.run [ParseArg.Unary("-libpath",reg libpath),
-                            ParseArg.Unary("-about",reg about_html)] of
+val () = case ParseArg.run [ParseArg.Unary("-libpath", reg libpath),
+                            ParseArg.Unary("-about", reg about_html),
+                            ParseArg.Unary("-logo", reg logo_html),
+                            ParseArg.Unary("-pkg", reg pkgfile)] of
              [] => help()
-           | files => gen(files,files)
+           | files => gen files

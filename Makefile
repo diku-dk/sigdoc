@@ -12,6 +12,8 @@ install:
 
 clean:
 	rm -rf *~ MLB run sigdoc *.html
+	$(MAKE) -C test clean
+	$(MAKE) -C test/full clean
 
 realclean:
 	$(MAKE) clean

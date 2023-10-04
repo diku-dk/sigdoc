@@ -1,0 +1,16 @@
+require {
+  github.com/diku-dk/sml-uref 0.0.2 #6881e4ab970febf55d4e684753dfd173b2fb033d
+  github.com/diku-dk/sml-pickle 0.1.0 #e9a405deb48865cc5ca1cea6fd8e79fbf9fc8851
+  github.com/diku-dk/sml-setmap 0.1.2 #8549d0d64a4b63b1e7fba3e545c5cac89c2ff447
+  github.com/diku-dk/sml-sort 0.2.1 #9efbabfd57e2db2514a07e69156d6857efe1a99f
+  github.com/diku-dk/sml-sobol 0.1.1 #23584dec7d165bf977c55d5aad1056fb585f642d
+  github.com/diku-dk/sml-random 0.1.1 #0a0f79c857207f948e89e18b320f162e30e1fdaf
+  github.com/diku-dk/sml-md5 0.1.1 #438d4a6ca20fd6a29c4dd45f247fe073432318d2
+  github.com/diku-dk/sml-sha256 0.1.0 #e11278f732df62a4ce3e0a7c17e173feb90b3d65
+  github.com/diku-dk/sml-base64 0.1.1 #575a413424c0a9ba8d3ea4397cb5116dd522cfdc
+  github.com/diku-dk/sml-hashtable 0.1.1 #2e98df6c57effdbc8c47fa1335e4e543ab412cc2
+  github.com/diku-dk/sml-cstring 0.1.0 #261ac586ddad1d9976a34f86bd12214940799fa7
+  github.com/diku-dk/sml-json 0.1.1 #724043b6d05791a62f91ce999e9ebbed22dd227d
+  github.com/diku-dk/sml-parse 0.1.5 #5693148ec0e4cbba1a1664170d9814f3b63267d9
+  github.com/diku-dk/sml-regexp 0.1.1 #b91e46945d68c3cb72b6bb002d562a1f57ecc01e
+}
